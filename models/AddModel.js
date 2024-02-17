@@ -1,20 +1,21 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
-const AddsSchema = new mongoose.Schema({
-
+const AddsSchema = new mongoose.Schema(
+  {
     Add: {
-        type: String,
-        required: true,
+      type: String,
+      required: true,
     },
     type: {
-        type: String,
-        required: true,
+      type: String,
+      required: true,
     },
     imageFor: {
-        type: String,
-        required: true
-    }
+      type: String,
+      required: true,
+    },
+  },
+  {timestamps: true}
+);
 
-}, { timestamps: true });
-
-module.exports = mongoose.model("AddsSchema", AddsSchema);
+module.exports = mongoose.model('AddsSchema', AddsSchema);

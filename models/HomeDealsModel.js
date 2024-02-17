@@ -1,10 +1,11 @@
 const mongoose = require('mongoose');
-const DealSchema = new mongoose.Schema({
-
+const DealSchema = new mongoose.Schema(
+  {
     DealProduct: {
-        type: Object
+      type: Object,
     },
-
-}, { timestamps: true })
+  },
+  {timestamps: true}
+);
 
 module.exports = mongoose.model('DealSchema', DealSchema);
