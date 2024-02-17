@@ -5,7 +5,13 @@ const cors = require('cors');
 
 // pic folder
 app.use('/uploads', express.static('uploads'));
-app.use(cors());
+
+// cors
+const corsOptions = {
+  origin: '*',
+};
+
+app.use(cors(corsOptions));
 
 // databse connection
 DB();
