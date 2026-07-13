@@ -1,145 +1,76 @@
 const productModel = require('../models/productModel');
 const slugify = require('slugify');
+const asyncHandler = require('../middleware/asyncHandler');
+const ApiError = require('../utils/ApiError');
 
-exports.createProduct = (req, res) => {
-  const {
-    name,
-    price,
-    offer,
-    description,
-    quantity,
-    reviews,
-    parent,
-    active,
-    brand,
-  } = req.body;
-  if (
-    !name ||
-    !price ||
-    !description ||
-    !quantity ||
-    !parent ||
-    !active ||
-    !brand
-  ) {
-    return res.json({message: 'All fields must be required'});
-  }
-  const productPics = [];
+const allProducts = () => productModel.find().sort({createdAt: -1});
 
-  if (req.files.length > 0) {
-    req.files.forEach((item) => productPics.push({img: item.path}));
+exports.createProduct = asyncHandler(async (req, res) => {
+  const {name, price, offer, description, quantity, parent, active, brand} =
+    req.body;
+
+  if (!name || !price || !description || !quantity || !parent || !active || !brand) {
+    throw new ApiError(400, 'All required fields must be provided');
   }
 
-  const _product = new productModel({
+  const productPics = (req.files || []).map((file) => ({img: file.path}));
+
+  await productModel.create({
     name,
-    slug: slugify(name),
+    slug: slugify(name, {lower: true}),
     price,
     offer,
     description,
     productPics,
     quantity,
-    reviews,
     active,
     parent,
     brand,
   });
 
-  _product.save((error, data) => {
-    if (error) throw error;
-    if (data) {
-      productModel
-        .find()
-        .sort({createdAt: -1})
-        .exec((error, products) => {
-          if (error) throw error;
-          if (products) return res.json(products);
-        });
+  res.status(201).json(await allProducts());
+});
+
+exports.getAllProducts = asyncHandler(async (req, res) => {
+  res.json(await allProducts());
+});
+
+exports.deleteProduct = asyncHandler(async (req, res) => {
+  const deleted = await productModel.findByIdAndDelete(req.body.productID);
+  if (!deleted) throw new ApiError(404, 'Product not found');
+  res.json(await allProducts());
+});
+
+exports.updateProductDetail = asyncHandler(async (req, res) => {
+  const {_id, productData} = req.body;
+  if (!_id || !productData) throw new ApiError(400, 'Missing product data');
+
+  const fields = [
+    'name',
+    'quantity',
+    'price',
+    'description',
+    'category',
+    'offer',
+    'parent',
+    'active',
+    'brand',
+  ];
+  const update = {};
+  fields.forEach((key) => {
+    if (productData[key] !== null && productData[key] !== undefined) {
+      update[key] = productData[key];
     }
   });
-};
+  // Keep the slug in sync with the name (old code set slug = raw name).
+  if (update.name) update.slug = slugify(update.name, {lower: true});
 
-exports.getAllProducts = (req, res) => {
-  productModel
-    .find()
-    .sort({createdAt: -1})
-    .exec((error, products) => {
-      if (error) throw error;
-      if (products) return res.json(products);
-    });
-};
+  const updated = await productModel.findByIdAndUpdate(
+    _id,
+    {$set: update},
+    {new: true}
+  );
+  if (!updated) throw new ApiError(404, 'Product not found');
 
-exports.deleteProduct = (req, res) => {
-  productModel
-    .findOneAndDelete({_id: req.body.productID})
-    .exec((error, data) => {
-      if (error) throw error;
-      if (data) {
-        productModel
-          .find()
-          .sort({createdAt: -1})
-          .exec((error, products) => {
-            if (error) throw error;
-            if (products) return res.json(products);
-          });
-      }
-    });
-};
-
-exports.updateProductDetail = (req, res) => {
-  const {_id, productData} = req.body;
-  const {
-    name,
-    quantity,
-    price,
-    description,
-    category,
-    offer,
-    parent,
-    active,
-    brand,
-  } = productData;
-  const productObject = {};
-  if (name !== null) {
-    productObject.name = name;
-    productObject.slug = name;
-  }
-  if (quantity !== null) {
-    productObject.quantity = quantity;
-  }
-  if (price !== null) {
-    productObject.price = price;
-  }
-  if (description !== null) {
-    productObject.description = description;
-  }
-  if (category !== null) {
-    productObject.category = category;
-  }
-  if (offer !== null) {
-    productObject.offer = offer;
-  }
-  if (parent !== null) {
-    productObject.parent = parent;
-  }
-  if (active !== null) {
-    productObject.active = active;
-  }
-  if (brand !== null) {
-    productObject.brand = brand;
-  }
-
-  productModel
-    .findOneAndUpdate({_id: _id}, {$set: productObject}, {new: true})
-    .exec((error, data) => {
-      if (error) throw error;
-      if (data) {
-        productModel
-          .find()
-          .sort({createdAt: -1})
-          .exec((error, products) => {
-            if (error) throw error;
-            if (products) return res.json(products);
-          });
-      }
-    });
-};
+  res.json(await allProducts());
+});

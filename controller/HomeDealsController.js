@@ -1,89 +1,68 @@
-const ProductModel = require('../models/productModel');
-const jwt = require('jsonwebtoken');
-const {jwtSecret} = require('../config/keys');
-const userModel = require('../models/userModel');
+const productModel = require('../models/productModel');
+const asyncHandler = require('../middleware/asyncHandler');
+const ApiError = require('../utils/ApiError');
 
-exports.AddProduct = (req, res) => {
+const allProducts = () => productModel.find().sort({createdAt: -1});
+
+// Admin: mark a product as being "In Deal".
+exports.AddProduct = asyncHandler(async (req, res) => {
   const {item} = req.body;
-
-  ProductModel.findOneAndUpdate(
-    {_id: item._id},
+  const updated = await productModel.findByIdAndUpdate(
+    item?._id,
     {$set: {active: 'In Deal'}},
     {new: true}
-  ).exec((error, data) => {
-    if (error) return res.json({message: 'Something went wrong..!'});
-    if (data) {
-      ProductModel.find()
-        .sort({createdAt: -1})
-        .exec((error, products) => {
-          if (error) return res.json({message: 'Something went wrong..!'});
-          if (products) return res.json(products);
-        });
-    }
-  });
-};
+  );
+  if (!updated) throw new ApiError(404, 'Product not found');
+  res.json(await allProducts());
+});
 
-exports.DeleteDealProducts = (req, res) => {
-  ProductModel.findOneAndUpdate(
-    {_id: req.body.id},
+// Admin: remove a product from deals.
+exports.DeleteDealProducts = asyncHandler(async (req, res) => {
+  const updated = await productModel.findByIdAndUpdate(
+    req.body.id,
     {$set: {active: 'Active', offer: 0}},
     {new: true}
-  ).exec((error, data) => {
-    if (error) return res.json({message: 'Something went wrong..!'});
-    if (data) {
-      ProductModel.find()
-        .sort({createdAt: -1})
-        .exec((error, products) => {
-          if (error) return res.json({message: 'Something went wrong..!'});
-          if (products) return res.json(products);
-        });
-    }
-  });
-};
+  );
+  if (!updated) throw new ApiError(404, 'Product not found');
+  res.json(await allProducts());
+});
 
-exports.AddDiscountPrice = (req, res) => {
+// Admin: set a discount amount on a product.
+exports.AddDiscountPrice = asyncHandler(async (req, res) => {
   const {offer, id} = req.body;
-  ProductModel.findOneAndUpdate(
-    {_id: id},
-    {$set: {offer: offer}},
+  const updated = await productModel.findByIdAndUpdate(
+    id,
+    {$set: {offer}},
     {new: true}
-  ).exec((error, data) => {
-    if (error) return res.json({message: 'Something went wrong..!'});
-    if (data) {
-      ProductModel.find()
-        .sort({createdAt: -1})
-        .exec((error, products) => {
-          if (error) return res.json({message: 'Something went wrong..!'});
-          if (products) return res.json(products);
-        });
-    }
-  });
-};
+  );
+  if (!updated) throw new ApiError(404, 'Product not found');
+  res.json(await allProducts());
+});
 
-exports.postReview = (req, res) => {
-  const {comment, star, detail, id, user, deal, token} = req.body;
-  const decode = jwt.verify(token, jwtSecret);
-  req.user = decode.data;
-  userModel.findById({_id: req.user}).exec((error, user) => {
-    if (error) throw error;
-    if (user) {
-      const reviewObject = {
-        userID: user._id,
-        userName: user.name,
-        userEmail: user.email,
-        comment: comment,
-        detail: detail,
-        star: star,
-        date: new Date(),
-      };
-      ProductModel.findOneAndUpdate(
-        {_id: id},
-        {$push: {reviews: reviewObject}},
-        {new: true}
-      ).exec((error, data) => {
-        if (error) return res.json({error: 'Server error'});
-        if (data) return res.json(data);
-      });
-    }
-  });
-};
+// User: post a review. The route is protected, so req.user is trusted here
+// rather than trusting user identity from the request body.
+exports.postReview = asyncHandler(async (req, res) => {
+  const {comment, star, detail, id} = req.body;
+  if (!comment || !detail || !star) {
+    throw new ApiError(400, 'Comment, detail and rating are required');
+  }
+
+  const review = {
+    userID: req.user._id,
+    userName: req.user.name,
+    userEmail: req.user.email,
+    comment,
+    detail,
+    star,
+    date: new Date(),
+  };
+
+  const product = await productModel.findByIdAndUpdate(
+    id,
+    {$push: {reviews: review}},
+    {new: true}
+  );
+  if (!product) throw new ApiError(404, 'Product not found');
+
+  res.json(product);
+});

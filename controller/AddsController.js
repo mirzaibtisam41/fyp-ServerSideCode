@@ -1,46 +1,27 @@
-const addsModal = require('../models/AddModel');
+const addsModel = require('../models/AddModel');
+const asyncHandler = require('../middleware/asyncHandler');
+const ApiError = require('../utils/ApiError');
 
-exports.postNewAdd = (req, res) => {
-  const _Add = new addsModal({
+const allAdds = () => addsModel.find().sort({createdAt: -1});
+
+exports.postNewAdd = asyncHandler(async (req, res) => {
+  if (!req.file) throw new ApiError(400, 'An image file is required');
+
+  await addsModel.create({
     Add: req.file.path,
     type: req.file.mimetype,
     imageFor: req.body.type,
   });
-  _Add.save((error, data) => {
-    if (error) return res.json(error);
-    if (data) {
-      addsModal
-        .find()
-        .sort({createdAt: -1})
-        .exec((error, data) => {
-          if (error) return res.json(error);
-          if (data) return res.json(data);
-        });
-    }
-  });
-};
 
-exports.getAllAdds = (req, res) => {
-  addsModal
-    .find()
-    .sort({createdAt: -1})
-    .exec((error, data) => {
-      if (error) return res.json(error);
-      if (data) return res.json(data);
-    });
-};
+  res.status(201).json(await allAdds());
+});
 
-exports.deleteAdd = (req, res) => {
-  addsModal.findOneAndDelete({_id: req.body.AddID}).exec((error, data) => {
-    if (error) return res.json(error);
-    if (data) {
-      addsModal
-        .find()
-        .sort({createdAt: -1})
-        .exec((error, data) => {
-          if (error) return res.json(error);
-          if (data) return res.json(data);
-        });
-    }
-  });
-};
+exports.getAllAdds = asyncHandler(async (req, res) => {
+  res.json(await allAdds());
+});
+
+exports.deleteAdd = asyncHandler(async (req, res) => {
+  const deleted = await addsModel.findByIdAndDelete(req.body.AddID);
+  if (!deleted) throw new ApiError(404, 'Banner not found');
+  res.json(await allAdds());
+});

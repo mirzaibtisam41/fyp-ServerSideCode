@@ -1,18 +1,21 @@
 const mongoose = require('mongoose');
 const {mongoURI} = require('./keys');
 
-const mongoConnect = () => {
+// Connects to MongoDB and exits the process on failure so we never serve
+// requests against a dead database (the old version swallowed the error).
+const connectDB = async () => {
   try {
-    mongoose.connect(mongoURI, {
+    await mongoose.connect(mongoURI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
       useCreateIndex: true,
       useFindAndModify: false,
     });
-    console.log('MongoDB Connected Successfully');
+    console.log('MongoDB connected');
   } catch (err) {
-    console.log('Error while DB connection');
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
   }
 };
 
-module.exports = mongoConnect;
+module.exports = connectDB;

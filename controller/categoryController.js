@@ -1,73 +1,45 @@
 const categoryModel = require('../models/categoryModel');
-const {validationResult} = require('express-validator');
 const slugify = require('slugify');
+const asyncHandler = require('../middleware/asyncHandler');
+const ApiError = require('../utils/ApiError');
 
-exports.create = (req, res) => {
+exports.create = asyncHandler(async (req, res) => {
   const {main, sub} = req.body;
-  let category = null;
-  if (!sub && main)
-    category = new categoryModel({name: main, slug: slugify(main)});
-  if (sub && !main)
-    category = new categoryModel({name: sub, slug: slugify(sub)});
-  if (sub && main)
-    category = new categoryModel({parent: main, slug: slugify(sub), name: sub});
 
-  category.save((error, data) => {
-    if (error) return res.json({error});
-    if (data)
-      return res.json({
-        messageDone: 'Category add Successfully',
-        dataNew: data,
-      });
-  });
-};
+  let payload;
+  if (main && !sub) payload = {name: main, slug: slugify(main, {lower: true})};
+  else if (sub && !main) payload = {name: sub, slug: slugify(sub, {lower: true})};
+  else if (main && sub)
+    payload = {parent: main, name: sub, slug: slugify(sub, {lower: true})};
+  else throw new ApiError(400, 'Category name is required');
 
-exports.getAll = (req, res) => {
-  categoryModel.find().exec((error, data) => {
-    if (error) return res.json({message: error});
-    if (data) {
-      res.json(data);
-    }
-  });
-};
+  const data = await categoryModel.create(payload);
+  res.status(201).json({messageDone: 'Category added successfully', dataNew: data});
+});
 
-// create category function
-const createCategory = (categories, parent = null) => {
-  const categoryList = [];
-  let category;
-  if (parent == null) {
-    category = categories.filter((item) => item.parent == undefined);
-  } else {
-    category = categories.filter((item) => item.parent == parent);
-  }
+exports.getAll = asyncHandler(async (req, res) => {
+  const data = await categoryModel.find();
+  res.json(data);
+});
 
-  for (let cate of category) {
-    categoryList.push({
-      _id: cate._id,
-      name: cate.name,
-      slug: cate.slug,
-      parent: cate.parent ? cate.parent : undefined,
-      children: createCategory(categories, cate.name),
-    });
-  }
+// Builds the nested category tree consumed by the storefront header.
+const buildTree = (categories, parent = null) =>
+  categories
+    .filter((c) => (parent == null ? c.parent == null : c.parent === parent))
+    .map((c) => ({
+      _id: c._id,
+      name: c.name,
+      slug: c.slug,
+      parent: c.parent || undefined,
+      children: buildTree(categories, c.name),
+    }));
 
-  return categoryList;
-};
+exports.getAllByFiltering = asyncHandler(async (req, res) => {
+  const categories = await categoryModel.find();
+  res.json(buildTree(categories));
+});
 
-// create category function end
-exports.getAllByFiltering = (req, res) => {
-  categoryModel.find().exec((error, categories) => {
-    if (error) return res.json({message: error});
-    if (categories) {
-      const categoryList = createCategory(categories);
-      res.json(categoryList);
-    }
-  });
-};
-
-exports.getSubCategories = (req, res) => {
-  categoryModel.find({parent: req.body.parent}).exec((error, data) => {
-    if (error) return res.json(error);
-    if (data) return res.json(data);
-  });
-};
+exports.getSubCategories = asyncHandler(async (req, res) => {
+  const data = await categoryModel.find({parent: req.body.parent});
+  res.json(data);
+});

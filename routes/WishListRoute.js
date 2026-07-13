@@ -4,6 +4,9 @@ const {
   getWishListOnRefresh,
   removeWishListItemsFunc,
 } = require('../controller/WishListController');
+const {protect} = require('../middleware/auth');
+
+router.use(protect);
 
 router.post('/addToWishList', addToWishListProducts);
 router.post('/getAllWishListItems', getWishListOnRefresh);

@@ -6,6 +6,10 @@ const {
   updateCartQuantityFunc,
   shiftCartToOrders,
 } = require('../controller/cartController');
+const {protect} = require('../middleware/auth');
+
+// Every cart operation requires an authenticated user.
+router.use(protect);
 
 router.post('/addToCart', addToCartProducts);
 router.post('/getAllCartItems', getCartOnRefresh);

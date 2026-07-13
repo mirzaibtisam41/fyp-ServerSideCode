@@ -1,97 +1,71 @@
-const adminModel = require('../models/adminModel');
-const passwordHash = require('password-hash');
 const jwt = require('jsonwebtoken');
-const {jwtSecret} = require('../config/keys');
-const {validationResult} = require('express-validator');
+const adminModel = require('../models/adminModel');
+const {jwtSecret, jwtExpiresIn} = require('../config/keys');
+const {hashPassword, verifyPassword, needsRehash} = require('../utils/password');
+const asyncHandler = require('../middleware/asyncHandler');
+const ApiError = require('../utils/ApiError');
 
-exports.signup = (req, res) => {
-  adminModel.findOne({email: req.body.email}).exec((error, user) => {
-    if (user)
-      return res.status(400).json({
-        message: 'Admin already registered',
-      });
+const signToken = (adminId) =>
+  jwt.sign({_id: adminId}, jwtSecret, {expiresIn: jwtExpiresIn});
 
-    const {firstName, lastName, email, password} = req.body;
-    const hashedPassword = passwordHash.generate(password);
+const publicAdmin = (admin) => ({
+  _id: admin._id,
+  firstName: admin.firstName,
+  lastName: admin.lastName,
+  email: admin.email,
+  role: admin.role,
+  profilePic: admin.profilePic,
+  fullName: `${admin.firstName} ${admin.lastName}`,
+});
 
-    const _admin = new adminModel({
-      firstName,
-      lastName,
-      email,
-      password: hashedPassword,
-    });
+// Creating admins is restricted to existing admins (route is adminOnly).
+exports.signup = asyncHandler(async (req, res) => {
+  const {firstName, lastName, email, password} = req.body;
 
-    _admin.save((error, data) => {
-      if (error)
-        return res.status(400).json({
-          message: 'Something went wrong',
-        });
+  const existing = await adminModel.findOne({email});
+  if (existing) throw new ApiError(409, 'Admin already registered');
 
-      if (data)
-        return res.status(200).json({
-          message: 'Admin Created Successfully',
-        });
-    });
+  await adminModel.create({
+    firstName,
+    lastName,
+    email,
+    password: await hashPassword(password),
   });
-};
 
-exports.signin = (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.json({message: errors.array()[0].msg});
+  res.status(201).json({message: 'Admin created successfully'});
+});
 
-  adminModel.findOne({email: req.body.email}).exec((error, user) => {
-    if (error) return res.json({error});
-    if (!user)
-      return res.json({
-        message: 'Email address not match',
-      });
-    if (user) {
-      const {_id, firstName, lastName, email, role, fullName, profilePic} =
-        user;
-      let isMatch = passwordHash.verify(req.body.password, user.password);
-      if (isMatch) {
-        let token = jwt.sign({_id: user._id}, jwtSecret, {expiresIn: '1d'});
-        return res.json({
-          token,
-          user: {
-            _id,
-            firstName,
-            lastName,
-            email,
-            role,
-            profilePic,
-            fullName: `${firstName} ${lastName}`,
-          },
-        });
-      }
-      if (!isMatch) {
-        return res.json({
-          message: 'Invalid Password',
-        });
-      }
-    }
-  });
-};
+exports.signin = asyncHandler(async (req, res) => {
+  const {email, password} = req.body;
 
-exports.updateProfile = (req, res) => {
-  const {_id, firstName, lastName, email, password} = req.body;
-  let path = null;
-  if (req.file) path = req.file.path;
-
-  let profileObject = {};
-  if (path !== null) profileObject.profilePic = path;
-  if (firstName) profileObject.firstName = firstName;
-  if (lastName) profileObject.lastName = lastName;
-  if (email) profileObject.email = email;
-  if (password) {
-    const hashedPassword = passwordHash.generate(password);
-    profileObject.password = hashedPassword;
+  const admin = await adminModel.findOne({email});
+  if (!admin || !(await verifyPassword(password, admin.password))) {
+    throw new ApiError(401, 'Invalid email or password');
   }
 
-  adminModel
-    .findOneAndUpdate({_id: _id}, {$set: profileObject}, {new: true})
-    .exec((error, data) => {
-      if (error) return res.json(error);
-      if (data) res.json(data);
-    });
-};
+  if (needsRehash(admin.password)) {
+    admin.password = await hashPassword(password);
+    await admin.save();
+  }
+
+  const token = signToken(admin._id);
+  res.json({token, user: publicAdmin(admin)});
+});
+
+// Admin updates their own profile (route is adminOnly → req.admin).
+exports.updateProfile = asyncHandler(async (req, res) => {
+  const {firstName, lastName, email, password} = req.body;
+  const update = {};
+
+  if (req.file) update.profilePic = req.file.path;
+  if (firstName) update.firstName = firstName;
+  if (lastName) update.lastName = lastName;
+  if (email) update.email = email;
+  if (password) update.password = await hashPassword(password);
+
+  const admin = await adminModel
+    .findByIdAndUpdate(req.admin._id, {$set: update}, {new: true})
+    .select('-password');
+
+  res.json(publicAdmin(admin));
+});

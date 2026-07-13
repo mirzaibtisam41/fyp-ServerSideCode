@@ -1,36 +1,12 @@
-const express = require('express');
-const app = express();
-const DB = require('./config/db');
-const cors = require('cors');
+require('dotenv').config();
 
-// pic folder
-app.use('/uploads', express.static('uploads'));
+const app = require('./app');
+const {port} = require('./config/keys');
+const connectDB = require('./config/db');
 
-// cors
-const corsOptions = {
-  origin: '*',
-};
+// Connect to the database, then start listening.
+connectDB().then(() => {
+  app.listen(port, () => console.log(`Server running on port ${port}`));
+});
 
-app.use(cors(corsOptions));
-
-// databse connection
-DB();
-
-// body-parser
-app.use(express.json({extended: false}));
-
-// routes
-app.get('/', (req, res) => res.send('Server Running'));
-app.use('/api/user', require('./routes/userRoute'));
-app.use('/api/admin', require('./routes/adminRoute'));
-app.use('/api/category', require('./routes/categoryRoute'));
-app.use('/api/product', require('./routes/productRoutes'));
-app.use('/api/cart', require('./routes/cartRoute'));
-app.use('/api/deals', require('./routes/HomeDealsRoute'));
-app.use('/api/adds', require('./routes/AddsRoute'));
-app.use('/api/wishlist', require('./routes/WishListRoute'));
-app.use('/api/payment', require('./routes/PaymentRoute'));
-app.use('/api/orders', require('./routes/OrderRoute'));
-
-const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`Server Running On Port ${PORT}`));
+module.exports = app;

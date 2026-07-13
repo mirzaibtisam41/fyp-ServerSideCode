@@ -1,157 +1,80 @@
 const cartModel = require('../models/cartModel');
-const userModel = require('../models/userModel');
-const jwt = require('jsonwebtoken');
-const {jwtSecret} = require('../config/keys');
 const orderModel = require('../models/OrdersModel');
+const asyncHandler = require('../middleware/asyncHandler');
+const ApiError = require('../utils/ApiError');
+const {computeCartTotal} = require('../utils/cartTotals');
 
-exports.addToCartProducts = (req, res) => {
-  const {token, product} = req.body;
+// Always return a consistent { user, cartItems } shape, even for an empty
+// cart — the old code left the request hanging when no cart doc existed.
+const cartResponse = (email, cart) => ({
+  user: email,
+  cartItems: cart ? cart.cartItems : [],
+});
 
-  if (token) {
-    const decode = jwt.verify(token, jwtSecret);
-    req.user = decode.data;
-    if (req.user) {
-      userModel.findById({_id: req.user}).exec((error, user) => {
-        if (error) throw error;
-        if (user) {
-          cartModel.findOne({user: user.email}).exec((error, userData) => {
-            if (error) throw error;
-            if (userData) {
-              cartModel
-                .findOneAndUpdate(
-                  {user: user.email},
-                  {$push: {cartItems: {product: product}}},
-                  {new: true}
-                )
-                .exec((error, data) => {
-                  if (error) throw error;
-                  if (data) return res.json(data);
-                });
-            } else if (!userData) {
-              const newCart = new cartModel({
-                user: user.email,
-                cartItems: {product: product},
-              });
+exports.addToCartProducts = asyncHandler(async (req, res) => {
+  const {product} = req.body;
+  if (!product) throw new ApiError(400, 'Product is required');
+  const email = req.user.email;
 
-              newCart.save((error, updatedCart) => {
-                if (error) throw error;
-                if (updatedCart) return res.json(updatedCart);
-              });
-            }
-          });
-        }
-      });
-    }
+  const cart = await cartModel.findOneAndUpdate(
+    {user: email},
+    {$push: {cartItems: {product}}},
+    {new: true, upsert: true, setDefaultsOnInsert: true}
+  );
+
+  res.json(cartResponse(email, cart));
+});
+
+exports.getCartOnRefresh = asyncHandler(async (req, res) => {
+  const email = req.user.email;
+  const cart = await cartModel.findOne({user: email});
+  res.json(cartResponse(email, cart));
+});
+
+exports.removeCartItemsFunc = asyncHandler(async (req, res) => {
+  const {cartItem} = req.body;
+  const email = req.user.email;
+
+  const cart = await cartModel.findOneAndUpdate(
+    {user: email},
+    {$pull: {cartItems: {_id: cartItem}}},
+    {new: true}
+  );
+
+  res.json(cartResponse(email, cart));
+});
+
+exports.updateCartQuantityFunc = asyncHandler(async (req, res) => {
+  const {products} = req.body;
+  if (!Array.isArray(products)) throw new ApiError(400, 'Products are required');
+  const email = req.user.email;
+
+  const cart = await cartModel.findOneAndUpdate(
+    {user: email},
+    {$set: {cartItems: products}},
+    {new: true}
+  );
+
+  res.json(cartResponse(email, cart));
+});
+
+// Turns the cart into an order after a successful payment. The total is
+// recomputed server-side; only the Stripe charge comes from the request.
+exports.shiftCartToOrders = asyncHandler(async (req, res) => {
+  const {charge} = req.body;
+  const email = req.user.email;
+
+  const cart = await cartModel.findOne({user: email});
+  if (!cart || cart.cartItems.length === 0) {
+    throw new ApiError(400, 'Your cart is empty');
   }
-};
 
-exports.getCartOnRefresh = (req, res) => {
-  const token = req.body.headers.token;
+  const products = cart.cartItems.map((item) => item.product);
+  const {total} = computeCartTotal(cart.cartItems);
 
-  if (token) {
-    const decode = jwt.verify(token, jwtSecret);
-    req.user = decode.data;
-    userModel.findById({_id: req.user}).exec((error, user) => {
-      if (error) throw error;
-      if (user) {
-        cartModel.findOne({user: user.email}).exec((error, cart) => {
-          if (error) throw error;
-          if (cart) return res.json(cart);
-        });
-      }
-    });
-  }
-};
+  await orderModel.create({user: email, products, total, charge});
+  await cartModel.findOneAndDelete({user: email});
 
-exports.removeCartItemsFunc = (req, res) => {
-  const {token, cartItem} = req.body;
-  const decode = jwt.verify(token, jwtSecret);
-  req.user = decode.data;
-  userModel.findById({_id: req.user}).exec((error, user) => {
-    if (error) throw error;
-    if (user) {
-      cartModel
-        .findOneAndUpdate(
-          {user: user.email},
-          {$pull: {cartItems: {_id: cartItem}}},
-          {new: true}
-        )
-        .exec((error, product) => {
-          if (error) throw error;
-          if (product) {
-            cartModel.findOne({user: user.email}).exec((error, cart) => {
-              if (error) throw error;
-              if (cart) return res.json(cart);
-            });
-          }
-        });
-    }
-  });
-};
-
-exports.updateCartQuantityFunc = (req, res) => {
-  const {token, products} = req.body;
-  const decode = jwt.verify(token, jwtSecret);
-  req.user = decode.data;
-  userModel.findById({_id: req.user}).exec((error, user) => {
-    if (error) throw error;
-    if (user) {
-      cartModel
-        .findOneAndUpdate(
-          {user: user.email},
-          {$set: {cartItems: products}},
-          {new: true}
-        )
-        .exec((error, cart) => {
-          if (error) throw error;
-          if (cart) return res.json(cart);
-        });
-    }
-  });
-};
-
-exports.shiftCartToOrders = (req, res) => {
-  const {token, total, charge} = req.body;
-  const decode = jwt.verify(token, jwtSecret);
-  req.user = decode.data;
-  userModel.findById({_id: req.user}).exec((error, user) => {
-    if (error) throw error;
-    if (user) {
-      cartModel.findOne({user: user.email}).exec((error, cart) => {
-        if (error) throw error;
-        if (cart) {
-          let cartProducts = [];
-          cart &&
-            cart.cartItems.forEach((item) => cartProducts.push(item.product));
-          if (cartProducts.length > 0) {
-            const _order = new orderModel({
-              user: user.email,
-              products: cartProducts,
-              total: total,
-              charge: charge,
-            });
-            _order.save((error, data) => {
-              if (error) throw error;
-              if (data) {
-                cartModel
-                  .findOneAndDelete({user: user.email})
-                  .exec((error, cartData) => {
-                    if (error) throw error;
-                    if (cartData) {
-                      orderModel
-                        .find({user: user.email})
-                        .sort({createdAt: -1})
-                        .exec((error, dataAll) => {
-                          if (error) throw error;
-                          if (data) return res.json(dataAll);
-                        });
-                    }
-                  });
-              }
-            });
-          }
-        }
-      });
-    }
-  });
-};
+  const orders = await orderModel.find({user: email}).sort({createdAt: -1});
+  res.json(orders);
+});

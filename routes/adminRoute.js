@@ -1,36 +1,40 @@
 const router = require('express').Router();
-const {
-  signup,
-  signin,
-  updateProfile,
-} = require('../controller/adminController');
-const {check} = require('express-validator');
-const multer = require('multer');
+const {body} = require('express-validator');
+const {signup, signin, updateProfile} = require('../controller/adminController');
+const {adminOnly} = require('../middleware/auth');
+const {authLimiter} = require('../middleware/rateLimit');
+const validate = require('../middleware/validate');
+const createUploader = require('../middleware/upload');
 
-// multer=====================================================
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, './uploads/');
-  },
-  filename: function (req, file, cb) {
-    cb(null, file.originalname);
-  },
-});
-const upload = multer({storage: storage});
+const upload = createUploader('admin');
 
-router.post('/signup', signup);
+// Creating a new admin requires an existing admin session.
+router.post(
+  '/signup',
+  adminOnly,
+  [
+    body('firstName').trim().notEmpty().withMessage('First name is required'),
+    body('lastName').trim().notEmpty().withMessage('Last name is required'),
+    body('email').isEmail().withMessage('A valid email is required'),
+    body('password')
+      .isLength({min: 6})
+      .withMessage('Password must be at least 6 characters'),
+  ],
+  validate,
+  signup
+);
 
 router.post(
   '/signin',
+  authLimiter,
   [
-    check('email').isEmail().withMessage('Please, Enter a valid email'),
-    check('password')
-      .isLength({min: 6})
-      .withMessage('Password must be at least 6 digits'),
+    body('email').isEmail().withMessage('Please enter a valid email'),
+    body('password').notEmpty().withMessage('Password is required'),
   ],
+  validate,
   signin
 );
 
-router.post('/updateProfile', upload.single('file'), updateProfile);
+router.post('/updateProfile', adminOnly, upload.single('file'), updateProfile);
 
 module.exports = router;

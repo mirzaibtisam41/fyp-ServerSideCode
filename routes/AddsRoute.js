@@ -1,24 +1,16 @@
 const router = require('express').Router();
-const multer = require('multer');
 const {
   postNewAdd,
   getAllAdds,
   deleteAdd,
 } = require('../controller/AddsController');
+const {adminOnly} = require('../middleware/auth');
+const createUploader = require('../middleware/upload');
 
-// multer=====================================================
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, './uploads/Adds');
-  },
-  filename: function (req, file, cb) {
-    cb(null, file.originalname);
-  },
-});
-const upload = multer({storage: storage});
+const upload = createUploader('Adds');
 
-router.post('/postAdd', upload.single('adds'), postNewAdd);
+router.post('/postAdd', adminOnly, upload.single('adds'), postNewAdd);
 router.get('/getAdds', getAllAdds);
-router.post('/deleteAdd', deleteAdd);
+router.post('/deleteAdd', adminOnly, deleteAdd);
 
 module.exports = router;

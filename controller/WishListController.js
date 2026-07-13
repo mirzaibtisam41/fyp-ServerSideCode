@@ -1,89 +1,41 @@
-const wishlistModal = require('../models/WishlistModal');
-const userModel = require('../models/userModel');
-const jwt = require('jsonwebtoken');
-const {jwtSecret} = require('../config/keys');
+const wishlistModel = require('../models/WishlistModal');
+const asyncHandler = require('../middleware/asyncHandler');
+const ApiError = require('../utils/ApiError');
 
-exports.addToWishListProducts = (req, res) => {
-  const {token, product} = req.body;
+const wishlistResponse = (email, doc) => ({
+  user: email,
+  cartItems: doc ? doc.cartItems : [],
+});
 
-  if (token) {
-    const decode = jwt.verify(token, jwtSecret);
-    req.user = decode.data;
-    if (req.user) {
-      userModel.findById({_id: req.user}).exec((error, user) => {
-        if (error) throw error;
-        if (user) {
-          wishlistModal.findOne({user: user.email}).exec((error, userData) => {
-            if (error) throw error;
-            if (userData) {
-              wishlistModal
-                .findOneAndUpdate(
-                  {user: user.email},
-                  {$push: {cartItems: {product: product}}},
-                  {new: true}
-                )
-                .exec((error, data) => {
-                  if (error) throw error;
-                  if (data) return res.json(data);
-                });
-            } else if (!userData) {
-              const newCart = new wishlistModal({
-                user: user.email,
-                cartItems: {product: product},
-              });
+exports.addToWishListProducts = asyncHandler(async (req, res) => {
+  const {product} = req.body;
+  if (!product) throw new ApiError(400, 'Product is required');
+  const email = req.user.email;
 
-              newCart.save((error, updatedCart) => {
-                if (error) throw error;
-                if (updatedCart) return res.json(updatedCart);
-              });
-            }
-          });
-        }
-      });
-    }
-  }
-};
+  const doc = await wishlistModel.findOneAndUpdate(
+    {user: email},
+    {$push: {cartItems: {product}}},
+    {new: true, upsert: true, setDefaultsOnInsert: true}
+  );
 
-exports.getWishListOnRefresh = (req, res) => {
-  const token = req.body.headers.token;
+  res.json(wishlistResponse(email, doc));
+});
 
-  if (token) {
-    const decode = jwt.verify(token, jwtSecret);
-    req.user = decode.data;
-    userModel.findById({_id: req.user}).exec((error, user) => {
-      if (error) throw error;
-      if (user) {
-        wishlistModal.findOne({user: user.email}).exec((error, cart) => {
-          if (error) throw error;
-          if (cart) return res.json(cart);
-        });
-      }
-    });
-  }
-};
+exports.getWishListOnRefresh = asyncHandler(async (req, res) => {
+  const email = req.user.email;
+  const doc = await wishlistModel.findOne({user: email});
+  res.json(wishlistResponse(email, doc));
+});
 
-exports.removeWishListItemsFunc = (req, res) => {
-  const {token, cartItem} = req.body;
-  const decode = jwt.verify(token, jwtSecret);
-  req.user = decode.data;
-  userModel.findById({_id: req.user}).exec((error, user) => {
-    if (error) throw error;
-    if (user) {
-      wishlistModal
-        .findOneAndUpdate(
-          {user: user.email},
-          {$pull: {cartItems: {_id: cartItem}}},
-          {new: true}
-        )
-        .exec((error, product) => {
-          if (error) throw error;
-          if (product) {
-            wishlistModal.findOne({user: user.email}).exec((error, cart) => {
-              if (error) throw error;
-              if (cart) return res.json(cart);
-            });
-          }
-        });
-    }
-  });
-};
+exports.removeWishListItemsFunc = asyncHandler(async (req, res) => {
+  const {cartItem} = req.body;
+  const email = req.user.email;
+
+  const doc = await wishlistModel.findOneAndUpdate(
+    {user: email},
+    {$pull: {cartItems: {_id: cartItem}}},
+    {new: true}
+  );
+
+  res.json(wishlistResponse(email, doc));
+});
